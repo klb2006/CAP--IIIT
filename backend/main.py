@@ -146,6 +146,23 @@ def insert_sensor_data(distance: float, temperature: float, water_percentage: fl
         cursor.close()
         conn.close()
 
+def get_max_entry_id():
+    """Get the max entry_id already in database to avoid duplicate syncs"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT MAX(entry_id) FROM sensor_data')
+        result = cursor.fetchone()
+        max_id = result[0] if result[0] else 0
+        return max_id
+    except Exception as e:
+        print(f"Error getting max entry_id: {e}")
+        return 0
+    finally:
+        cursor.close()
+        conn.close()
+
 def get_latest_sensor_data():
     """
     Retrieve the latest sensor data from the database.
@@ -341,14 +358,29 @@ async def get_sensor_history(limit: int = 100):
 
 @app.get("/api/v1/sensor/sync-thingspeak")
 async def sync_thingspeak_data(results: int = 100):
-    """Sync multiple data points from ThingSpeak to database"""
+    """Sync ONLY NEW data points from ThingSpeak to database (avoid duplicates)"""
     try:
+        # Get the highest entry_id already synced
+        max_entry_id = get_max_entry_id()
+        print(f"[SYNC] Max entry_id in database: {max_entry_id}")
+        
         thingspeak = get_thingspeak_client()
         ts_data = thingspeak.get_multiple_data(results=results)
         
         if ts_data:
-            count = 0
+            new_records = []
+            skipped = 0
+            
+            # Only keep records with entry_id > max_entry_id
             for data in ts_data:
+                if data['entry_id'] > max_entry_id:
+                    new_records.append(data)
+                else:
+                    skipped += 1
+            
+            # Insert only new records
+            count = 0
+            for data in new_records:
                 if insert_sensor_data(
                     distance=data['distance'],
                     temperature=data['temperature'],
@@ -361,9 +393,11 @@ async def sync_thingspeak_data(results: int = 100):
             
             return {
                 "status": "success",
-                "synced_count": count,
+                "new_synced": count,
+                "skipped_duplicates": skipped,
                 "total_fetched": len(ts_data),
-                "message": f"Synced {count} records from ThingSpeak to database"
+                "max_entry_id": max_entry_id,
+                "message": f"Synced {count} NEW records, skipped {skipped} duplicates"
             }
         else:
             return {
