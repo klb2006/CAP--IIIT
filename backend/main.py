@@ -12,6 +12,9 @@ import uvicorn
 # TensorFlow imports
 from tensorflow.keras.models import load_model
 
+# ThingSpeak import
+from thingspeak import get_thingspeak_client
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -278,18 +281,100 @@ async def status():
 
 @app.get("/api/v1/sensor/latest")
 async def get_latest_data():
-    """Get latest sensor data"""
-    data = get_latest_sensor_data()
-    if data:
-        return {"status": "success", "data": data}
-    else:
-        return {"status": "error", "message": "No sensor data available"}
+    """Get latest sensor data from ThingSpeak and save to database"""
+    try:
+        # Get ThingSpeak client
+        thingspeak = get_thingspeak_client()
+        
+        # Fetch latest data from ThingSpeak
+        ts_data = thingspeak.get_latest_data()
+        
+        if ts_data:
+            # Save to database
+            insert_sensor_data(
+                distance=ts_data['distance'],
+                temperature=ts_data['temperature'],
+                water_percentage=ts_data['water_percentage'],
+                water_liters=ts_data['water_liters'],
+                timestamp=ts_data['timestamp'],
+                entry_id=ts_data['entry_id']
+            )
+            
+            return {
+                "status": "success",
+                "data": ts_data,
+                "source": "ThingSpeak",
+                "message": "Data fetched from ThingSpeak and saved to database"
+            }
+        else:
+            # Fallback to database if ThingSpeak fails
+            data = get_latest_sensor_data()
+            if data:
+                return {
+                    "status": "success",
+                    "data": data,
+                    "source": "Database",
+                    "message": "ThingSpeak unavailable, returning cached data"
+                }
+            return {
+                "status": "error",
+                "message": "No sensor data available from ThingSpeak or database"
+            }
+    except Exception as e:
+        print(f"Error fetching latest sensor data: {e}")
+        # Fallback to database
+        data = get_latest_sensor_data()
+        if data:
+            return {
+                "status": "success",
+                "data": data,
+                "source": "Database",
+                "message": f"Error from ThingSpeak: {str(e)}, returning cached data"
+            }
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/v1/sensor/history")
 async def get_sensor_history(limit: int = 100):
     """Get sensor data history"""
     data = get_sensor_data_range(limit)
     return {"status": "success", "count": len(data), "data": data}
+
+@app.get("/api/v1/sensor/sync-thingspeak")
+async def sync_thingspeak_data(results: int = 100):
+    """Sync multiple data points from ThingSpeak to database"""
+    try:
+        thingspeak = get_thingspeak_client()
+        ts_data = thingspeak.get_multiple_data(results=results)
+        
+        if ts_data:
+            count = 0
+            for data in ts_data:
+                if insert_sensor_data(
+                    distance=data['distance'],
+                    temperature=data['temperature'],
+                    water_percentage=data['water_percentage'],
+                    water_liters=data['water_liters'],
+                    timestamp=data['timestamp'],
+                    entry_id=data['entry_id']
+                ):
+                    count += 1
+            
+            return {
+                "status": "success",
+                "synced_count": count,
+                "total_fetched": len(ts_data),
+                "message": f"Synced {count} records from ThingSpeak to database"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "No data available from ThingSpeak"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 @app.post("/api/v1/predict-water")
 async def predict_water(request: PredictionRequest):
