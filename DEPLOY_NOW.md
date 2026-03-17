@@ -211,10 +211,19 @@ git push origin master
 
 ## 📞 If Issues Occur
 
-**Backend won't start?**
-- Check environment variables are set correctly
-- View logs in Render dashboard
-- Verify database connection
+**Backend won't start ("uvicorn: command not found" or "No module named uvicorn")?**
+- Render may be using a cached service configuration
+- ⚠️ **IMPORTANT**: You must either:
+  - **Option A**: Delete the old service and create a **NEW** Web Service with the updated code from GitHub
+  - **Option B**: Go to your Render dashboard → select the service → **Settings** → manually change:
+    - **Start Command** to: `bash start.sh`
+    - Then click **"Save" and "Redeploy"**
+  - After either option, wait 5-10 minutes for the new deployment
+
+**Backend build succeeds but deploy fails?**
+- Check environment variables are set correctly in Render dashboard
+- View full logs in Render dashboard under "Logs"
+- Verify database connection string is exactly correct
 
 **Frontend shows "Disconnected"?**
 - Ensure `VITE_API_URL` is set to your backend URL
