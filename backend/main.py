@@ -29,12 +29,33 @@ print("Loading ML model...")
 ml_model = None
 if TENSORFLOW_AVAILABLE:
     try:
-        # Try loading from saved_models first, then from root
-        model_path = "saved_models/best_model.h5"
-        if not os.path.exists(model_path):
-            model_path = "../best_model.h5"  # Root directory relative to backend/
-        ml_model = load_model(model_path)
-        print("[OK] ML model loaded successfully from " + model_path)
+        # Get the directory of this script
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(current_dir)
+        
+        # Try multiple possible paths
+        possible_paths = [
+            os.path.join(current_dir, "saved_models/best_model.h5"),
+            os.path.join(root_dir, "best_model.h5"),
+            "saved_models/best_model.h5",
+            "../best_model.h5",
+            "/opt/render/project/src/best_model.h5"
+        ]
+        
+        model_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                model_path = path
+                print(f"[INFO] Found model at: {path}")
+                break
+        
+        if model_path:
+            ml_model = load_model(model_path)
+            print(f"[OK] ML model loaded successfully from {model_path}")
+        else:
+            print(f"[WARNING] Model not found in any of these paths: {possible_paths}")
+            print("[INFO] Running in fallback mode without ML predictions")
+            
     except Exception as e:
         print("[WARNING] Could not load model - " + str(e))
         print("[INFO] Running in fallback mode without ML predictions")
