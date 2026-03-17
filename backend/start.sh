@@ -3,10 +3,11 @@ set -e
 
 # Set up environment
 export PYTHONUNBUFFERED=1
+
+# Make sure to include all possible site-packages locations in PYTHONPATH
+export PYTHONPATH="/usr/local/lib/python3.11/dist-packages:/usr/lib/python3/dist-packages:/opt/render/project/src/backend:$PYTHONPATH"
+
 cd /opt/render/project/src/backend
 
-# Make sure pip packages are accessible
-export PYTHONPATH=/opt/render/project/src/backend:$PYTHONPATH
-
 # Execute the launcher
-python3 run.py
+exec python3 run.py
