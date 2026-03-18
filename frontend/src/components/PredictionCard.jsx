@@ -79,10 +79,16 @@ const PredictionCard = ({ sensorData, isConnected }) => {
               {prediction.value.toFixed(1)}%
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-              Predicted water level
+              Predicted water level (Next cycle)
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
               Predicted at: {prediction.timestamp}
+            </p>
+          </div>
+          
+          <div className="mt-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-700">
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+              ⚠️ <strong>Note:</strong> If water level stays the same for 2+ minutes, the motor might not be running. In that case, the prediction may be inaccurate because the model expects water movement.
             </p>
           </div>
         </motion.div>
@@ -114,7 +120,7 @@ const PredictionCard = ({ sensorData, isConnected }) => {
       </button>
 
       <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">
-        Uses your GRU ML model with current sensor data to predict water level
+        🤖 LSTM model predicts next water level based on: distance, temperature, current water %, time of day. Accuracy depends on active motor/system changes.
       </p>
     </motion.div>
   );
