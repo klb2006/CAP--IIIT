@@ -218,7 +218,7 @@ def load_ml_model():
 
 def load_model_with_h5_conversion(model_path):
     """
-    Fallback: Extract model from h5 file and rebuild with Keras 2.x format
+    Fallback: Extract model from h5 file, rebuild with Keras 2.x format, and apply weights
     This handles Keras 3.x models that can't be loaded directly
     """
     try:
@@ -227,60 +227,92 @@ def load_model_with_h5_conversion(model_path):
         from tensorflow.keras.models import Sequential
         from tensorflow.keras.layers import GRU, Dense, Dropout
         
-        print("[INFO] Extracting model architecture from h5 file...")
+        print("[INFO] Extracting model architecture AND weights from h5 file...")
         
         with h5py.File(model_path, 'r') as f:
-            # Get metadata
-            if 'metadata' in f.attrs:
-                metadata = json.loads(f.attrs['metadata'].decode('utf-8') if isinstance(f.attrs['metadata'], bytes) else f.attrs['metadata'])
-                print(f"[INFO] Model metadata found")
-            
-            # Extract weights for layer detection
-            if 'model_weights' not in f:
-                print("[WARNING] No model_weights found in h5 file")
-                return None
-            
-            # Detect layer architecture from weights
+            # Extract all layer weights first
             layer_weights = {}
-            for layer_name in f['model_weights'].keys():
-                if layer_name != 'top_level_model_weights':
-                    shapes = []
-                    for key in f[f'model_weights/{layer_name}'].keys():
-                        dataset = f[f'model_weights/{layer_name}/{key}']
-                        shapes.append(np.array(dataset).shape)
-                    layer_weights[layer_name] = shapes
+            if 'model_weights' in f:
+                for layer_name in f['model_weights'].keys():
+                    if layer_name != 'top_level_model_weights':
+                        weights_list = []
+                        for key in sorted(f[f'model_weights/{layer_name}'].keys()):
+                            dataset = f[f'model_weights/{layer_name}/{key}']
+                            weights_list.append(np.array(dataset))
+                        layer_weights[layer_name] = weights_list
             
-            print(f"[INFO] Detected layers: {list(layer_weights.keys())}")
+            print(f"[OK] Extracted {len(layer_weights)} layers with weights")
             
-            # Infer units from shapes
+            # Infer units from GRU weight shapes
             gru_units = 128
             gru1_units = 64
             dense_units = 32
             
-            # Find GRU units from recurrent kernel shape (units, 3*units)
-            for layer_name, shapes in layer_weights.items():
-                if 'gru' in layer_name.lower() and len(shapes) > 1:
-                    # Recurrent kernel is typically second weight
-                    recurrent_shape = shapes[1]
-                    if len(recurrent_shape) == 2:
-                        gru_units = recurrent_shape[0]
-                        print(f"[INFO] {layer_name}: {gru_units} units")
-                        break
+            # Find GRU units from recurrent kernel shape
+            if 'gru' in layer_weights and len(layer_weights['gru']) > 1:
+                recurrent_shape = layer_weights['gru'][1].shape
+                if len(recurrent_shape) == 2:
+                    gru_units = recurrent_shape[0]
             
-            # Build model with inferred units
-            print("[INFO] Building model with Keras 2.x format...")
+            if 'gru_1' in layer_weights and len(layer_weights['gru_1']) > 1:
+                recurrent_shape = layer_weights['gru_1'][1].shape
+                if len(recurrent_shape) == 2:
+                    gru1_units = recurrent_shape[0]
+            
+            if 'dense_4' in layer_weights and len(layer_weights['dense_4']) > 0:
+                dense_shape = layer_weights['dense_4'][0].shape
+                if len(dense_shape) == 2:
+                    dense_units = dense_shape[1]
+            
+            print(f"[INFO] Detected architecture: GRU({gru_units}) → GRU({gru1_units}) → Dense({dense_units})")
+            
+            # Build model with correct units
+            print("[INFO] Building Keras 2.x model...")
             model = Sequential([
                 GRU(gru_units, return_sequences=True, input_shape=(1, 5), name='gru'),
                 GRU(gru1_units, name='gru_1'),
-                Dropout(0.2, name='dropout'),
-                Dense(dense_units, activation='relu', name='dense'),
-                Dense(1, activation='sigmoid', name='output')
+                Dropout(0.2, name='dropout_1'),
+                Dense(dense_units, activation='relu', name='dense_4'),
+                Dense(1, activation='sigmoid', name='dense_5')
             ])
             
             model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-            print("[OK] Model rebuilt successfully!")
-            return model
             
+            # Now apply the extracted weights
+            print("[INFO] Applying extracted weights to model...")
+            try:
+                # Map layer names to model layers
+                layer_mapping = {
+                    'gru': 0,
+                    'gru_1': 1,
+                    'dropout_1': 2,
+                    'dense_4': 3,
+                    'dense_5': 4
+                }
+                
+                weights_applied = 0
+                for layer_name, weights_list in layer_weights.items():
+                    if layer_name in layer_mapping:
+                        layer_idx = layer_mapping[layer_name]
+                        model_layer = model.layers[layer_idx]
+                        
+                        # Check if weights can be applied
+                        if len(weights_list) > 0:
+                            try:
+                                model_layer.set_weights(weights_list)
+                                weights_applied += 1
+                                print(f"  [OK] Applied weights to layer: {layer_name}")
+                            except Exception as e:
+                                print(f"  [WARNING] Could not apply weights to {layer_name}: {e}")
+                
+                print(f"[OK] Successfully applied weights to {weights_applied} layers!")
+                return model
+                
+            except Exception as e:
+                print(f"[WARNING] Weight application partial: {e}")
+                print("[INFO] Model structure is correct, but weights may not be fully applied")
+                return model
+        
     except Exception as e:
         print(f"[ERROR] H5 conversion failed: {e}")
         import traceback
