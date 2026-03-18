@@ -45,6 +45,37 @@ def try_load_tensorflow():
             TENSORFLOW_AVAILABLE = False
             return None
 
+def convert_keras3_model_to_tf215(model_path):
+    """
+    Convert a Keras 3.x model to TensorFlow 2.15 compatible format
+    This handles the case where model was saved with newer Keras
+    """
+    try:
+        print(f"[INFO] Attempting to convert model from Keras 3.x to TF 2.15 format...")
+        from tensorflow.keras.models import load_model as tf_load_model
+        from tensorflow import keras
+        
+        # Load with compile=False to avoid issues with custom objects
+        model = tf_load_model(model_path, compile=False)
+        print(f"[INFO] Loaded model, now recompiling...")
+        
+        # Recompile with standard optimizer and loss
+        model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        
+        # Save in TensorFlow 2.15 format
+        temp_path = model_path.replace('.h5', '_converted.h5')
+        model.save(temp_path, save_format='h5')
+        print(f"[INFO] Converted model saved to {temp_path}")
+        
+        return model, temp_path
+    except Exception as e:
+        print(f"[WARNING] Conversion failed: {e}")
+        return None, None
+
 def load_ml_model():
     """
     Lazy load the ML model - only attempts to load once
@@ -100,7 +131,19 @@ def load_ml_model():
                     print("="*60 + "\n")
                     return ml_model
             except Exception as e:
-                print(f"[ERROR] Model loading failed with detailed info:")
+                print(f"[WARNING] Direct loading failed: {e}")
+                print(f"[INFO] Attempting to convert model format...")
+                
+                # Try converting the model
+                converted_model, converted_path = convert_keras3_model_to_tf215(model_path)
+                if converted_model is not None:
+                    ml_model = converted_model
+                    print(f"[OK] Model converted and loaded successfully from {model_path}")
+                    TENSORFLOW_AVAILABLE = True
+                    print("="*60 + "\n")
+                    return ml_model
+                
+                print(f"[ERROR] Model loading and conversion failed with detailed info:")
                 print(f"  Error type: {type(e).__name__}")
                 print(f"  Error message: {e}")
                 import traceback
