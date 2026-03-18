@@ -304,6 +304,7 @@ def load_model_with_h5_conversion(model_path):
                     print(f"[INFO] Dense units detected: {dense_units}")
             
             print(f"[INFO] Building model: LSTM({lstm_units}) → Dropout(0.3) → LSTM({lstm1_units}) → Dense({dense_units}) → Dense(1)")
+            print(f"[DEBUG] Force rebuild - LSTM weights found: {len(layer_weights)}")
             
             # Build model matching the actual structure
             model = Sequential([
