@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import uvicorn
+from config import FEATURE_RANGES, get_all_feature_ranges_dict, print_feature_ranges
 
 # Load environment variables from .env
 load_dotenv()
@@ -19,43 +20,40 @@ ml_model = None
 TENSORFLOW_AVAILABLE = False
 data_scaler = None
 
-# Feature ranges for MinMaxScaler (from typical sensor values)
-# These ranges normalize the input features to [0, 1]
-FEATURE_RANGES = {
-    'distance': (5, 50),          # cm
-    'temperature': (15, 40),      # °C
-    'water_percent': (0, 100),    # %
-    'minute': (0, 59),            # 0-59 minutes
-    'hour': (0, 23)               # 0-23 hours
-}
-
 def create_data_scaler():
     """
     Create a MinMaxScaler with fitted ranges from training data
     This is the same scaling used during model training
+    Feature ranges are configured in config.py
     """
     global data_scaler
     try:
         from sklearn.preprocessing import MinMaxScaler
         
+        # Get feature ranges from config
+        feature_ranges_dict = get_all_feature_ranges_dict()
+        
         # Create feature matrix with known ranges
         scaler = MinMaxScaler(feature_range=(0, 1))
         
-        # Fit scaler on the full range of possible values
-        fit_data = np.array([
-            [FEATURE_RANGES['distance'][0], FEATURE_RANGES['temperature'][0], 
-             FEATURE_RANGES['water_percent'][0], FEATURE_RANGES['minute'][0], 
-             FEATURE_RANGES['hour'][0]],
-            [FEATURE_RANGES['distance'][1], FEATURE_RANGES['temperature'][1], 
-             FEATURE_RANGES['water_percent'][1], FEATURE_RANGES['minute'][1], 
-             FEATURE_RANGES['hour'][1]]
-        ])
+        # Create min and max arrays from config
+        min_values = [feature_ranges_dict[name][0] for name in 
+                     ['distance', 'temperature', 'water_percent', 'minute', 'hour']]
+        max_values = [feature_ranges_dict[name][1] for name in 
+                     ['distance', 'temperature', 'water_percent', 'minute', 'hour']]
         
+        # Fit scaler on the full range of possible values
+        fit_data = np.array([min_values, max_values])
         scaler.fit(fit_data)
         data_scaler = scaler
-        print("[OK] Data scaler initialized with feature ranges:")
-        for feature, (min_val, max_val) in FEATURE_RANGES.items():
-            print(f"     {feature}: [{min_val}, {max_val}]")
+        
+        print("[OK] Data scaler initialized with feature ranges from config.py:")
+        print("     distance: [%d, %d] cm" % (min_values[0], max_values[0]))
+        print("     temperature: [%d, %d] °C" % (min_values[1], max_values[1]))
+        print("     water_percent: [%d, %d] %%" % (min_values[2], max_values[2]))
+        print("     minute: [%d, %d]" % (min_values[3], max_values[3]))
+        print("     hour: [%d, %d]" % (min_values[4], max_values[4]))
+        
         return scaler
     except Exception as e:
         print(f"[ERROR] Failed to create scaler: {e}")
@@ -679,11 +677,15 @@ async def startup_event():
     print("[START] Water Tank Monitoring System - Starting UP")
     print("="*60)
     
+    # Print configurable feature ranges
+    print_feature_ranges()
+    
     # Create all required tables
     create_all_tables()
     
     print("[OK] API Server ready!")
     print("[INFO] API Documentation: http://127.0.0.1:8000/docs")
+    print("[INFO] To customize feature ranges, edit: backend/config.py")
     print("="*60 + "\n")
 
 # ===== MAIN =====
