@@ -229,7 +229,7 @@ def load_model_with_h5_conversion(model_path):
         import h5py
         import json
         from tensorflow.keras.models import Sequential
-        from tensorflow.keras.layers import GRU, Dense, Dropout
+        from tensorflow.keras.layers import LSTM, Dense, Dropout
         
         print("[INFO] Extracting model architecture AND weights from h5 file...")
         
@@ -256,17 +256,14 @@ def load_model_with_h5_conversion(model_path):
                     if layer_name != 'top_level_model_weights':
                         layer_group = f[f'model_weights/{layer_name}']
                         
-                        # Recursively extract all datasets from nested groups with keys
+                        # Recursively extract all datasets from nested groups
                         weight_tuples = extract_weights_recursive(layer_group, layer_name)
                         
                         if weight_tuples:  # Only add if we found actual weights
-                            # Sort weights in the correct order for Keras layers
-                            # For Dense: kernel, bias
-                            # For GRU cells: kernel, recurrent_kernel, bias
                             sorted_weights = []
                             weight_dict = {k: w for k, w in weight_tuples}
                             
-                            # Determine correct ordering
+                            # Determine correct ordering for all weight types
                             if 'kernel' in weight_dict:
                                 sorted_weights.append(weight_dict['kernel'])
                             if 'recurrent_kernel' in weight_dict:
@@ -282,39 +279,39 @@ def load_model_with_h5_conversion(model_path):
             
             print(f"[OK] Extracted {len(layer_weights)} layers with weights")
             
-            # Infer units from GRU weight shapes
-            gru_units = 128
-            gru1_units = 64
+            # Detect units from LSTM/Dense weight shapes
+            lstm_units = 128
+            lstm1_units = 64
             dense_units = 32
             
-            # Find GRU units from recurrent kernel shape
-            if 'gru' in layer_weights and len(layer_weights['gru']) > 1:
-                recurrent_shape = layer_weights['gru'][1].shape
+            # Find LSTM units from recurrent kernel shape
+            if 'lstm' in layer_weights and len(layer_weights['lstm']) > 1:
+                recurrent_shape = layer_weights['lstm'][1].shape
                 if len(recurrent_shape) == 2:
-                    gru_units = recurrent_shape[0]
-                    print(f"[INFO] GRU units detected: {gru_units}")
+                    lstm_units = recurrent_shape[0]
+                    print(f"[INFO] LSTM units detected: {lstm_units}")
             
-            if 'gru_1' in layer_weights and len(layer_weights['gru_1']) > 1:
-                recurrent_shape = layer_weights['gru_1'][1].shape
+            if 'lstm_1' in layer_weights and len(layer_weights['lstm_1']) > 1:
+                recurrent_shape = layer_weights['lstm_1'][1].shape
                 if len(recurrent_shape) == 2:
-                    gru1_units = recurrent_shape[0]
-                    print(f"[INFO] GRU_1 units detected: {gru1_units}")
+                    lstm1_units = recurrent_shape[0]
+                    print(f"[INFO] LSTM_1 units detected: {lstm1_units}")
             
-            if 'dense_4' in layer_weights and len(layer_weights['dense_4']) > 0:
-                dense_shape = layer_weights['dense_4'][0].shape
+            if 'dense' in layer_weights and len(layer_weights['dense']) > 0:
+                dense_shape = layer_weights['dense'][0].shape
                 if len(dense_shape) == 2:
                     dense_units = dense_shape[1]
                     print(f"[INFO] Dense units detected: {dense_units}")
             
-            print(f"[INFO] Building Keras 2.x model: GRU({gru_units}) -> GRU({gru1_units}) -> Dense({dense_units})")
+            print(f"[INFO] Building model: LSTM({lstm_units}) → Dropout(0.3) → LSTM({lstm1_units}) → Dense({dense_units}) → Dense(1)")
             
-            # Build model with correct units
+            # Build model matching the actual structure
             model = Sequential([
-                GRU(gru_units, return_sequences=True, input_shape=(1, 5), name='gru'),
-                GRU(gru1_units, name='gru_1'),
-                Dropout(0.2, name='dropout_1'),
-                Dense(dense_units, activation='relu', name='dense_4'),
-                Dense(1, activation='sigmoid', name='dense_5')
+                LSTM(lstm_units, return_sequences=True, input_shape=(1, 5), name='lstm'),
+                Dropout(0.3, name='dropout'),
+                LSTM(lstm1_units, name='lstm_1'),
+                Dense(dense_units, activation='relu', name='dense'),
+                Dense(1, activation='linear', name='dense_1')
             ])
             
             model.compile(optimizer='adam', loss='mse', metrics=['mae'])
@@ -323,11 +320,11 @@ def load_model_with_h5_conversion(model_path):
             print("[INFO] Applying extracted weights to model...")
             
             layer_mapping = {
-                'gru': 0,
-                'gru_1': 1,
-                'dropout_1': 2,
-                'dense_4': 3,
-                'dense_5': 4
+                'lstm': 0,
+                'dropout': 1,
+                'lstm_1': 2,
+                'dense': 3,
+                'dense_1': 4
             }
             
             weights_applied = 0
@@ -338,6 +335,10 @@ def load_model_with_h5_conversion(model_path):
                     
                     try:
                         # Verify correct number of weights
+                        if layer_name == 'dropout':
+                            # Dropout has no weights
+                            continue
+                        
                         expected_weights = len(model_layer.weights)
                         actual_weights = len(weights_list)
                         
